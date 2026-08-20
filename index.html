@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Shipment Dispatcher (SD)</title>
   
-  <!-- Favicon: SD у стилі металевого логотипу DC -->
+  <!-- Favicon: SD у стилі металевого логотипу DC з чіткими буквами -->
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><linearGradient id='c' x1='0' y1='0' x2='1' y2='1'><stop offset='0%' stop-color='%23ffffff'/><stop offset='30%' stop-color='%23cbd5e1'/><stop offset='50%' stop-color='%23334155'/><stop offset='70%' stop-color='%2394a3b8'/><stop offset='100%' stop-color='%230f172a'/></linearGradient><linearGradient id='g' x1='0' y1='0' x2='0' y2='1'><stop offset='0%' stop-color='%2338bdf8'/><stop offset='100%' stop-color='%231d4ed8'/></linearGradient></defs><rect width='100' height='100' rx='22' fill='%23030712'/><circle cx='50' cy='50' r='43' fill='none' stroke='url(%23g)' stroke-width='5'/><circle cx='50' cy='50' r='37' fill='none' stroke='url(%23c)' stroke-width='5'/><circle cx='50' cy='50' r='32' fill='none' stroke='%230284c7' stroke-width='1.5' opacity='0.8'/><text x='50' y='66' font-family='Impact, Arial Black, sans-serif' font-size='46' font-weight='900' text-anchor='middle' fill='url(%23g)' letter-spacing='-1'>SD</text><text x='50' y='65' font-family='Impact, Arial Black, sans-serif' font-size='44' font-weight='900' text-anchor='middle' fill='url(%23c)' letter-spacing='-1'>SD</text></svg>">
 
   <!-- Tailwind CSS -->
@@ -19,13 +19,20 @@
   <style>
     body, html { margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; font-family: system-ui, -apple-system, sans-serif; }
     #map { width: 100%; height: calc(100vh - 56px); z-index: 1; }
-    .side-panel { height: calc(100vh - 56px); z-index: 2000; transition: transform 0.3s ease-in-out; }
+    .side-panel { height: calc(100vh - 56px); z-index: 2000; transition: all 0.3s ease-in-out; }
     .bottom-dock { height: 56px; z-index: 2500; }
     .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
     .custom-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; }
     .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
     .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
     .crosshair-cursor { cursor: crosshair !important; }
+    
+    /* Fullscreen mode for right panel */
+    .right-panel-fullscreen {
+      width: 100% !important;
+      max-width: 100% !important;
+      left: 0 !important;
+    }
   </style>
 </head>
 <body class="bg-slate-900 text-slate-800 flex flex-col h-screen">
@@ -65,7 +72,7 @@
     <div class="p-4 bg-slate-900 text-white flex justify-between items-center">
       <h2 id="rightPanelTitle" class="font-bold text-lg flex items-center gap-2">Shipment Dispatcher</h2>
       <div class="flex items-center gap-2">
-        <button onclick="UIModule.toggleFullscreenRightPanel()" class="text-slate-400 hover:text-white p-1 text-sm"><i class="fa-solid fa-expand"></i></button>
+        <button onclick="UIModule.toggleFullscreenRightPanel()" class="text-slate-400 hover:text-white p-1 text-sm" title="Розгорнути/Згорнути"><i class="fa-solid fa-expand"></i></button>
         <button onclick="UIModule.toggleRightPanel()" class="text-slate-400 hover:text-white text-xl"><i class="fa-solid fa-xmark"></i></button>
       </div>
     </div>
@@ -219,8 +226,13 @@
       return Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
     }
 
+    // FIX: Safely retrieve assigned hub and validate existence/active status
     function getAssignedHubId(obl, activeHubs) {
       let assignedHubId = STATE.manualBindings[obl.name];
+      // Validate that manual binding points to an active existing hub
+      if (assignedHubId && !activeHubs.some(h => h.id === assignedHubId)) {
+        assignedHubId = null;
+      }
       if (!assignedHubId) {
         let minD = Infinity;
         activeHubs.forEach(h => {
@@ -244,6 +256,7 @@
       }
       try {
         const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}&limit=1`);
+        if (!response.ok) return null; // FIX: Check response HTTP status
         const data = await response.json();
         if (data && data.length > 0) {
           return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
@@ -320,6 +333,11 @@
           const assignedHub = activeHubs.find(h => h.id === assignedHubId);
           const isCovered = !!assignedHub;
 
+          // FIX: Safe popup text without undefined errors
+          const popupContent = isCovered 
+            ? `<b>${escapeHtml(obl.name)}</b><br>Прив'язано до: ${escapeHtml(assignedHub.name)}`
+            : `<b>${escapeHtml(obl.name)}</b><br>Поза покриттям`;
+
           const oblMarker = L.circleMarker([obl.lat, obl.lon], {
             radius: 5,
             fillColor: isCovered ? '#10b981' : '#ef4444',
@@ -327,7 +345,7 @@
             weight: 2,
             opacity: 1,
             fillOpacity: 0.8
-          }).addTo(STATE.map).bindPopup(`<b>${escapeHtml(obl.name)}</b><br>${isCovered ? `Прив'язано до: ${escapeHtml(assignedHub.name)}` : 'Поза покриттям'}`);
+          }).addTo(STATE.map).bindPopup(popupContent);
 
           STATE.mapLayers.oblasts.push(oblMarker);
         });
@@ -625,41 +643,9 @@
 
       deleteHub(id) {
         showConfirmModal('Видалення складу', 'Ви дійсно бажаєте видалити цей склад відвантаження?', () => {
-          // 1. Видаляємо сам склад
           STATE.hubs = STATE.hubs.filter(h => h.id !== id);
 
-          // 2. Очищаємо каскадні зв'язки (сміття) з ручних прив'язок
-          Object.keys(STATE.manualBindings).forEach(obl => {
-            if (STATE.manualBindings[obl] === id) {
-              delete STATE.manualBindings[obl];
-            }
-          });
-
-          // 3. Очищаємо графік доставки для цього складу
-          Object.keys(STATE.deliverySchedule).forEach(key => {
-            if (key.startsWith(`${id}__`)) {
-              delete STATE.deliverySchedule[key];
-            }
-          });
-
-          // 4. Очищаємо приховані маршрути
-          Object.keys(STATE.hiddenRoutes).forEach(key => {
-            if (key.startsWith(`${id}__`)) {
-              delete STATE.hiddenRoutes[key];
-            }
-          });
-
-          // 5. Оновлюємо результати розрахунку (скидаємо видалений склад)
-          if (STATE.calcResults) {
-            STATE.calcResults.forEach(r => {
-              if (r.hub && r.hub.id === id) {
-                r.hub = null;
-                r.error = true;
-              }
-            });
-          }
-
-          // Зберігаємо чистий стан у localStorage та перемальовуємо UI
+          // StorageModule.save() executes cleanOrphans() automatically
           StorageModule.save();
           this.renderList();
           MapModule.renderAll();
@@ -667,7 +653,7 @@
           if (UIModule.currentTab === 'schedule') UIModule.renderSchedule();
           if (UIModule.currentTab === 'calc') UIModule.renderCalcTable();
 
-          UIModule.showToast('Склад та всі пов\'язані дані видалено');
+          UIModule.showToast('Склад та всі пов\'язані дані очищено');
         });
       },
 
@@ -691,11 +677,11 @@
     };
 
     const StorageModule = {
-      // Автоматичний сміттєзбірник (Garbage Collector)
+      // Automatic Garbage Collector (State Sanitizer)
       cleanOrphans() {
         const validHubIds = new Set((STATE.hubs || []).map(h => h.id));
 
-        // 1. Очищення ручних прив'язок областей (manualBindings)
+        // 1. Clean manualBindings
         if (STATE.manualBindings) {
           Object.keys(STATE.manualBindings).forEach(obl => {
             if (!validHubIds.has(STATE.manualBindings[obl])) {
@@ -704,7 +690,7 @@
           });
         }
 
-        // 2. Очищення графіку доставки (deliverySchedule: `${hubId}__${oblastName}`)
+        // 2. Clean deliverySchedule
         if (STATE.deliverySchedule) {
           Object.keys(STATE.deliverySchedule).forEach(key => {
             const hubId = key.split('__')[0];
@@ -714,7 +700,7 @@
           });
         }
 
-        // 3. Очищення прихованих рейсів (hiddenRoutes: `${hubId}__route_${routeNum}`)
+        // 3. Clean hiddenRoutes
         if (STATE.hiddenRoutes) {
           Object.keys(STATE.hiddenRoutes).forEach(key => {
             const hubId = key.split('__')[0];
@@ -724,7 +710,7 @@
           });
         }
 
-        // 4. Очищення застарілих складів у результатах розрахунку (calcResults)
+        // 4. Reset points in calcResults associated with deleted hubs
         if (STATE.calcResults && Array.isArray(STATE.calcResults)) {
           STATE.calcResults.forEach(r => {
             if (r.hub && !validHubIds.has(r.hub.id)) {
@@ -736,9 +722,7 @@
       },
 
       save() {
-        // Запускаємо очищення перед кожним записом у localStorage
         this.cleanOrphans();
-
         const data = {
           hubs: STATE.hubs,
           manualBindings: STATE.manualBindings,
@@ -774,7 +758,6 @@
             }
             if (parsed.hiddenRoutes) STATE.hiddenRoutes = parsed.hiddenRoutes;
 
-            // Очищаємо завантажений стан від застарілого сміття
             this.cleanOrphans();
           } catch (e) {
             console.error("Storage load error:", e);
@@ -820,7 +803,7 @@
             if (imported.calcResults) STATE.calcResults = imported.calcResults;
             if (imported.hiddenRoutes) STATE.hiddenRoutes = imported.hiddenRoutes;
 
-            StorageModule.save(); // save() викликає cleanOrphans()
+            StorageModule.save();
             HubsModule.renderList();
             MapModule.renderAll();
             if (UIModule.currentTab) UIModule.openTab(UIModule.currentTab);
@@ -844,11 +827,10 @@
         document.getElementById('rightPanel').classList.toggle('translate-x-full');
       },
 
+      // FIX: Proper Fullscreen Toggle Mechanism
       toggleFullscreenRightPanel() {
         const panel = document.getElementById('rightPanel');
-        panel.classList.toggle('sm:w-[600px]');
-        panel.classList.toggle('md:w-[700px]');
-        panel.classList.toggle('w-full');
+        panel.classList.toggle('right-panel-fullscreen');
       },
 
       showToast(msg) {
@@ -979,7 +961,6 @@
         for (let i = 0; i < lines.length; i++) {
           const address = lines[i];
           
-          // Throttling for Nominatim API limit (1 request/sec)
           if (i > 0 && !address.match(/(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)/)) {
             await sleep(800);
           }
@@ -993,18 +974,21 @@
           let matchedHub = null;
           let minDistance = Infinity;
 
+          // 1. Check manual binding for the region first
           const matchedOblast = ukraineOblasts.find(o => 
             address.toLowerCase().includes(o.name.toLowerCase().replace(" область", "").replace("автономна республіка ", ""))
           );
+          
           if (matchedOblast && STATE.manualBindings[matchedOblast.name]) {
             matchedHub = activeHubs.find(h => h.id === STATE.manualBindings[matchedOblast.name]);
           }
 
+          // 2. FIX: Find closest active hub AND verify distance <= hub.radius
           if (!matchedHub) {
             activeHubs.forEach(h => {
               if (h.lat && h.lon) {
                 const dist = getDistanceKm(h.lat, h.lon, coords.lat, coords.lon);
-                if (dist < minDistance) {
+                if (dist <= h.radius && dist < minDistance) { // Radius constraint enforced
                   minDistance = dist;
                   matchedHub = h;
                 }
@@ -1019,7 +1003,7 @@
             cost: 0,
             coords,
             routeNum: 1,
-            error: !matchedHub
+            error: !matchedHub // Error if outside radius or not found
           });
         }
 
@@ -1188,7 +1172,7 @@
         if (unassignedList.length > 0) {
           html += `
             <div class="bg-red-50 p-2 font-bold text-xs text-red-700 border-b border-red-200">
-              <i class="fa-solid fa-triangle-exclamation mr-1"></i> Нерозподілені точки (${unassignedList.length})
+              <i class="fa-solid fa-triangle-exclamation mr-1"></i> Нерозподілені / Поза радіусом (${unassignedList.length})
             </div>
             <table class="w-full text-left text-xs">
               <tbody class="divide-y divide-slate-100">
@@ -1197,7 +1181,7 @@
             html += `
               <tr>
                 <td class="p-2 font-medium text-slate-800" colspan="4">${escapeHtml(p.address)}</td>
-                <td class="p-2 text-right font-bold text-red-500" colspan="2">Помилка адреси / складу</td>
+                <td class="p-2 text-right font-bold text-red-500" colspan="2">Поза радіусом / Помилка адреси</td>
               </tr>
             `;
           });
@@ -1264,10 +1248,34 @@
           return;
         }
 
-        let csvContent = "data:text/csv;charset=utf-8,Адреса,Склад_відвантаження,Рейс,Точка,Відстань_км,Витрати_грн\n";
+        // Add UTF-8 BOM so Excel opens Ukrainian characters correctly
+        let csvContent = "data:text/csv;charset=utf-8,\uFEFF";
+        csvContent += "Адреса,Склад_відвантаження,Рейс,Точка,Відстань_км,Витрати_грн\n";
+
+        // Pre-group points to calculate exact sequence numbers (1.1, 1.2...)
+        const hubGroups = {};
+        STATE.calcResults.forEach(res => {
+          if (!res.error && res.hub) {
+            if (!hubGroups[res.hub.id]) hubGroups[res.hub.id] = { hub: res.hub, points: [] };
+            hubGroups[res.hub.id].points.push(res);
+          }
+        });
+
         STATE.calcResults.forEach(r => {
           const hubName = r.hub ? r.hub.name : 'Невизначено';
-          csvContent += `"${r.address.replace(/"/g, '""')}","${hubName}",${r.routeNum || 1},${r.dist || 0},${r.cost || 0}\n`;
+          let pointLabel = '-';
+          
+          if (r.hub && hubGroups[r.hub.id]) {
+            const rNum = r.routeNum || 1;
+            const subPoints = hubGroups[r.hub.id].points.filter(p => (p.routeNum || 1) === rNum);
+            const subIdx = subPoints.indexOf(r);
+            if (subIdx !== -1) {
+              pointLabel = `${rNum}.${subIdx + 1}`;
+            }
+          }
+
+          // FIX: Exactly 6 columns matching header row
+          csvContent += `"${r.address.replace(/"/g, '""')}","${hubName.replace(/"/g, '""')}",${r.routeNum || 1},"${pointLabel}",${r.dist || 0},${r.cost || 0}\n`;
         });
 
         const encodedUri = encodeURI(csvContent);
