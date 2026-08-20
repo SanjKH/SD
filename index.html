@@ -216,7 +216,7 @@
     const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
     function getDistanceKm(lat1, lon1, lat2, lon2) {
-      if (!lat1 || !lon1 || !lat2 || !lon2) return 0;
+      if (lat1 == null || lon1 == null || lat2 == null || lon2 == null) return 0;
       const R = 6371;
       const dLat = (lat2 - lat1) * Math.PI / 180;
       const dLon = (lon2 - lon1) * Math.PI / 180;
@@ -559,13 +559,14 @@
           container.appendChild(div);
         });
 
-        StorageModule.save();
+        // Removed StorageModule.save() from render function to avoid side-effects
       },
 
       toggleActive(id) {
         const hub = STATE.hubs.find(h => h.id === id);
         if (hub) {
           hub.active = !hub.active;
+          StorageModule.save();
           this.renderList();
           MapModule.renderAll();
           if (UIModule.currentTab === 'coverage') UIModule.renderCoverage();
@@ -635,10 +636,18 @@
           });
         }
 
+        // Reset stale calcResults when hub parameters change to keep logic valid
+        if (STATE.calcResults && STATE.calcResults.length > 0) {
+          STATE.calcResults = [];
+          UIModule.showToast('Склад оновлено. Виконайте розрахунок повторно.');
+        } else {
+          UIModule.showToast('Склад відвантаження успішно збережено!');
+        }
+
+        StorageModule.save();
         this.closeModal();
         this.renderList();
         MapModule.renderAll();
-        UIModule.showToast('Склад відвантаження успішно збережено!');
       },
 
       deleteHub(id) {
@@ -710,14 +719,9 @@
           });
         }
 
-        // 4. Reset points in calcResults associated with deleted hubs
+        // 4. Purge calcResults points linked to deleted hubs (no orphan error rows)
         if (STATE.calcResults && Array.isArray(STATE.calcResults)) {
-          STATE.calcResults.forEach(r => {
-            if (r.hub && !validHubIds.has(r.hub.id)) {
-              r.hub = null;
-              r.error = true;
-            }
-          });
+          STATE.calcResults = STATE.calcResults.filter(r => !r.hub || validHubIds.has(r.hub.id));
         }
       },
 
