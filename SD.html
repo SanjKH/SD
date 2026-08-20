@@ -1,0 +1,1567 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Shipment Dispatcher</title>
+  
+  <!-- Favicon: SD у стилі металевого логотипу DC -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%230f172a'/><circle cx='50' cy='50' r='42' fill='none' stroke='%233b82f6' stroke-width='6'/><text x='50' y='68' font-family='Arial, sans-serif' font-weight='900' font-size='56' fill='%23ffffff' text-anchor='middle'>SD</text></svg>">
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <!-- Leaflet CSS & JS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  
+  <style>
+    body, html { margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; font-family: system-ui, -apple-system, sans-serif; }
+    #map { width: 100%; height: calc(100vh - 56px); z-index: 1; }
+    .side-panel { height: calc(100vh - 56px); z-index: 2000; transition: transform 0.3s ease-in-out; }
+    .bottom-dock { height: 56px; z-index: 2500; }
+    .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+    .custom-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    .crosshair-cursor { cursor: crosshair !important; }
+  </style>
+</head>
+<body class="bg-slate-900 text-slate-800 flex flex-col h-screen">
+
+  <!-- Map Container -->
+  <div id="map"></div>
+
+  <!-- Left Drawer Toggle (Warehouses) -->
+  <button id="toggleHubsBtn" onclick="UIModule.toggleLeftPanel()" class="absolute top-4 left-4 z-[2100] bg-slate-900 text-white p-3 rounded-xl shadow-2xl hover:bg-slate-800 transition-all flex items-center justify-center w-12 h-12 border border-slate-700" title="Склади відвантаження">
+    <i class="fa-solid fa-warehouse text-lg"></i>
+  </button>
+
+  <!-- Right Drawer Toggle (Results/Analytics) -->
+  <button id="toggleResultsBtn" onclick="UIModule.toggleRightPanel()" class="absolute top-4 right-4 z-[2100] bg-slate-900 text-white p-3 rounded-xl shadow-2xl hover:bg-slate-800 transition-all flex items-center justify-center w-12 h-12 border border-slate-700" title="Панель диспетчера">
+    <i class="fa-solid fa-list-check text-lg"></i>
+  </button>
+
+  <!-- Left Panel: Shipment Warehouse Management -->
+  <div id="leftPanel" class="side-panel absolute top-0 left-0 w-80 sm:w-96 bg-white shadow-2xl transform -translate-x-full flex flex-col border-r border-slate-200">
+    <div class="p-4 bg-slate-900 text-white flex justify-between items-center">
+      <h2 class="font-bold text-lg flex items-center gap-2"><i class="fa-solid fa-warehouse text-blue-400"></i> Склади відвантаження</h2>
+      <button onclick="UIModule.toggleLeftPanel()" class="text-slate-400 hover:text-white text-xl"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
+      <span class="text-sm font-semibold text-slate-600">Список складів</span>
+      <button onclick="HubsModule.openAddModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow-sm">
+        <i class="fa-solid fa-plus"></i> Додати склад
+      </button>
+    </div>
+    <div id="hubsList" class="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
+      <!-- Dynamic list -->
+    </div>
+  </div>
+
+  <!-- Right Panel: Main Analytics Workspace -->
+  <div id="rightPanel" class="side-panel absolute top-0 right-0 w-full sm:w-[600px] md:w-[700px] bg-white shadow-2xl transform translate-x-full flex flex-col border-l border-slate-200">
+    <div class="p-4 bg-slate-900 text-white flex justify-between items-center">
+      <h2 id="rightPanelTitle" class="font-bold text-lg flex items-center gap-2">Shipment Dispatcher</h2>
+      <div class="flex items-center gap-2">
+        <button onclick="UIModule.toggleFullscreenRightPanel()" class="text-slate-400 hover:text-white p-1 text-sm"><i class="fa-solid fa-expand"></i></button>
+        <button onclick="UIModule.toggleRightPanel()" class="text-slate-400 hover:text-white text-xl"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+    </div>
+    <div id="rightPanelContent" class="flex-1 overflow-y-auto p-4 custom-scrollbar">
+      <!-- Content loaded dynamically -->
+    </div>
+  </div>
+
+  <!-- Bottom Navigation Dock -->
+  <div class="bottom-dock fixed bottom-0 left-0 w-full bg-slate-900 border-t border-slate-800 flex items-center justify-center px-4 gap-1.5 sm:gap-3 shadow-2xl">
+    <button id="navCalcBtn" onclick="UIModule.openTab('calc')" class="px-3 py-2 rounded-lg text-xs font-bold transition flex items-center gap-1.5 text-slate-300 hover:text-white hover:bg-slate-800">
+      <i class="fa-solid fa-truck-fast"></i> <span class="hidden sm:inline">Розрахунок</span>
+    </button>
+    <button id="navCoverageBtn" onclick="UIModule.openTab('coverage')" class="px-3 py-2 rounded-lg text-xs font-bold transition flex items-center gap-1.5 text-slate-300 hover:text-white hover:bg-slate-800">
+      <i class="fa-solid fa-chart-pie"></i> <span class="hidden sm:inline">Покриття</span>
+    </button>
+    <button id="navScheduleBtn" onclick="UIModule.openTab('schedule')" class="px-3 py-2 rounded-lg text-xs font-bold transition flex items-center gap-1.5 text-slate-300 hover:text-white hover:bg-slate-800">
+      <i class="fa-solid fa-calendar-days"></i> <span class="hidden sm:inline">Графік доставки</span>
+    </button>
+    <button id="navDeparturesBtn" onclick="UIModule.openTab('departures')" class="px-3 py-2 rounded-lg text-xs font-bold transition flex items-center gap-1.5 text-slate-300 hover:text-white hover:bg-slate-800">
+      <i class="fa-solid fa-truck-arrow-right"></i> <span class="hidden sm:inline">Графік виїздів</span>
+    </button>
+    <button id="navFaqBtn" onclick="UIModule.openTab('faq')" class="px-3 py-2 rounded-lg text-xs font-bold transition flex items-center gap-1.5 text-slate-300 hover:text-white hover:bg-slate-800">
+      <i class="fa-solid fa-circle-question"></i> <span class="hidden sm:inline">FAQ</span>
+    </button>
+  </div>
+
+  <!-- Warehouse Modal -->
+  <div id="hubModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[3000] hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-100">
+      <div class="p-4 bg-slate-900 text-white flex justify-between items-center">
+        <h3 id="hubModalTitle" class="font-bold text-base">Додати склад відвантаження</h3>
+        <button onclick="HubsModule.closeModal()" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="p-5 space-y-4">
+        <input type="hidden" id="modalHubId">
+        <div>
+          <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Назва складу відвантаження</label>
+          <input type="text" id="modalHubName" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="напр. Склад Вінниця">
+        </div>
+        <div>
+          <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Адреса / Координати</label>
+          <div class="flex gap-2">
+            <input type="text" id="modalHubAddress" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Місто або URL / координати">
+            <button onclick="HubsModule.pickLocationOnMap()" class="bg-slate-800 hover:bg-slate-700 text-white px-3 py-2 rounded-lg text-xs font-bold transition whitespace-nowrap flex items-center gap-1">
+              <i class="fa-solid fa-location-dot text-red-400"></i> На карті
+            </button>
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Радіус (км)</label>
+            <input type="number" id="modalHubRadius" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" value="250">
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Тариф (грн/км)</label>
+            <input type="number" id="modalHubTariff" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" value="35">
+          </div>
+        </div>
+      </div>
+      <div class="p-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-2">
+        <button onclick="HubsModule.closeModal()" class="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-lg transition">Скасувати</button>
+        <button onclick="HubsModule.saveHub()" class="px-4 py-2 text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition shadow-md">Зберегти</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Custom Confirmation Modal -->
+  <div id="confirmModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[3500] hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden border border-slate-100 p-5 space-y-4">
+      <div class="flex items-center gap-3 text-amber-500">
+        <i class="fa-solid fa-triangle-exclamation text-2xl"></i>
+        <h4 class="font-bold text-slate-900 text-base" id="confirmTitle">Підтвердження</h4>
+      </div>
+      <p class="text-xs text-slate-600 leading-relaxed" id="confirmMessage">Ви впевнені?</p>
+      <div class="flex justify-end gap-2 pt-2">
+        <button id="confirmCancelBtn" class="px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-lg transition">Скасувати</button>
+        <button id="confirmOkBtn" class="px-3 py-2 text-xs font-bold bg-red-600 hover:bg-red-700 text-white rounded-lg transition">Підтвердити</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div id="toast" class="fixed top-6 left-1/2 transform -translate-x-1/2 z-[4000] bg-slate-900 text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow-2xl border border-slate-700 opacity-0 transition-all pointer-events-none flex items-center gap-2">
+    <i class="fa-solid fa-circle-info text-blue-400"></i> <span id="toastMsg">Сповіщення</span>
+  </div>
+
+  <script>
+    const STATE = {
+      hubs: [
+        { id: 'h1', name: 'Склад Вінниця', address: 'м. Вінниця', lat: 49.2331, lon: 28.4682, radius: 250, tariff: 35, active: true },
+        { id: 'h2', name: 'Склад Острів', address: 'с. Острів, Тернопільська обл.', lat: 49.4851, lon: 25.5786, radius: 250, tariff: 35, active: true },
+        { id: 'h3', name: 'Склад Полтава', address: 'м. Полтава', lat: 49.5883, lon: 34.5514, radius: 250, tariff: 35, active: true }
+      ],
+      manualBindings: {}, // oblastName -> hubId
+      deliverySchedule: {}, // `${hubId}__${oblastName}` -> ['mon', 'wed']
+      calcAddressText: '',
+      calcResults: [],
+      hiddenRoutes: {}, // `${hubId}__route_${routeNum}` -> boolean
+      scheduleFilterDays: [], // [] = all
+      scheduleViewMode: 'hubs', // 'hubs' or 'oblasts'
+      map: null,
+      mapLayers: { hubs: [], circles: [], oblasts: [], routes: [], calcMarkers: [], calcLines: [] }
+    };
+
+    const HUB_COLORS = ['#2563eb', '#10b981', '#8b5cf6', '#f59e0b', '#ec4899', '#06b6d4'];
+
+    const ukraineOblasts = [
+      { name: "Вінницька область", lat: 49.23, lon: 28.46 },
+      { name: "Волинська область", lat: 50.74, lon: 25.32 },
+      { name: "Дніпропетровська область", lat: 48.46, lon: 35.04 },
+      { name: "Донецька область", lat: 48.01, lon: 37.80 },
+      { name: "Житомирська область", lat: 50.25, lon: 28.65 },
+      { name: "Закарпатська область", lat: 48.62, lon: 22.28 },
+      { name: "Запорізька область", lat: 47.83, lon: 35.13 },
+      { name: "Івано-Франківська область", lat: 48.92, lon: 24.71 },
+      { name: "Київська область та м. Київ", lat: 50.45, lon: 30.52 },
+      { name: "Кіровоградська область", lat: 48.50, lon: 32.26 },
+      { name: "Луганська область", lat: 48.57, lon: 39.30 },
+      { name: "Львівська область", lat: 49.83, lon: 24.02 },
+      { name: "Миколаївська область", lat: 46.97, lon: 31.99 },
+      { name: "Одеська область", lat: 46.48, lon: 30.72 },
+      { name: "Полтавська область", lat: 49.58, lon: 34.55 },
+      { name: "Рівненська область", lat: 50.61, lon: 26.25 },
+      { name: "Сумська область", lat: 50.90, lon: 34.79 },
+      { name: "Тернопільська область", lat: 49.55, lon: 25.59 },
+      { name: "Харківська область", lat: 49.99, lon: 36.23 },
+      { name: "Херсонська область", lat: 46.63, lon: 32.61 },
+      { name: "Хмельницька область", lat: 49.42, lon: 26.98 },
+      { name: "Черкаська область", lat: 49.44, lon: 32.06 },
+      { name: "Чернівецька область", lat: 48.29, lon: 25.93 },
+      { name: "Чернігівська область", lat: 51.49, lon: 31.28 },
+      { name: "Автономна Республіка Крим", lat: 45.34, lon: 34.40 }
+    ];
+
+    const daysList = [
+      { id: 'mon', name: 'Пн' }, { id: 'tue', name: 'Вт' }, { id: 'wed', name: 'Ср' },
+      { id: 'thu', name: 'Чт' }, { id: 'fri', name: 'Пт' }, { id: 'sat', name: 'Сб' }, { id: 'sun', name: 'Нд' }
+    ];
+
+    function getDistanceKm(lat1, lon1, lat2, lon2) {
+      if (!lat1 || !lon1 || !lat2 || !lon2) return 0;
+      const R = 6371;
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLon = (lon2 - lon1) * Math.PI / 180;
+      const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                Math.sin(dLon / 2) * Math.sin(dLon / 2);
+      return Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+    }
+
+    function getAssignedHubId(obl, activeHubs) {
+      let assignedHubId = STATE.manualBindings[obl.name];
+      if (!assignedHubId) {
+        let minD = Infinity;
+        activeHubs.forEach(h => {
+          if (h.lat && h.lon) {
+            const dist = getDistanceKm(h.lat, h.lon, obl.lat, obl.lon);
+            if (dist <= h.radius && dist < minD) {
+              minD = dist;
+              assignedHubId = h.id;
+            }
+          }
+        });
+      }
+      return assignedHubId;
+    }
+
+    async function geocodeAddress(address) {
+      if (!address) return null;
+      const coordMatch = address.match(/(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)/);
+      if (coordMatch) {
+        return { lat: parseFloat(coordMatch[1]), lon: parseFloat(coordMatch[2]) };
+      }
+      try {
+        const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}&limit=1`);
+        const data = await response.json();
+        if (data && data.length > 0) {
+          return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
+        }
+      } catch (e) {
+        console.error("Geocoding error:", e);
+      }
+      return null;
+    }
+
+    function showConfirmModal(title, message, onOk) {
+      const modal = document.getElementById('confirmModal');
+      document.getElementById('confirmTitle').innerText = title;
+      document.getElementById('confirmMessage').innerText = message;
+      const okBtn = document.getElementById('confirmOkBtn');
+      const cancelBtn = document.getElementById('confirmCancelBtn');
+      const close = () => modal.classList.add('hidden');
+      okBtn.onclick = () => { close(); onOk(); };
+      cancelBtn.onclick = () => close();
+      modal.classList.remove('hidden');
+    }
+
+    const MapModule = {
+      init() {
+        STATE.map = L.map('map', { zoomControl: false }).setView([49.0, 31.0], 6);
+        L.control.zoom({ position: 'bottomright' }).addTo(STATE.map);
+        
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          maxZoom: 18,
+          attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(STATE.map);
+
+        this.renderAll();
+      },
+
+      clearLayers() {
+        Object.keys(STATE.mapLayers).forEach(key => {
+          STATE.mapLayers[key].forEach(layer => STATE.map.removeLayer(layer));
+          STATE.mapLayers[key] = [];
+        });
+      },
+
+      renderAll() {
+        this.clearLayers();
+        const activeHubs = STATE.hubs.filter(h => h.active);
+        const isCalcTab = UIModule.currentTab === 'calc';
+
+        // 1. Draw Warehouse markers & Circles
+        activeHubs.forEach((hub, idx) => {
+          if (!hub.lat || !hub.lon) return;
+          const color = HUB_COLORS[idx % HUB_COLORS.length];
+
+          const marker = L.circleMarker([hub.lat, hub.lon], {
+            radius: 9,
+            fillColor: color,
+            color: '#ffffff',
+            weight: 3,
+            opacity: 1,
+            fillOpacity: 0.9
+          }).addTo(STATE.map).bindPopup(`<b>${escapeHtml(hub.name)}</b><br>${escapeHtml(hub.address)}<br>Радіус: ${hub.radius} км`);
+          STATE.mapLayers.hubs.push(marker);
+
+          // Circles are very transparent when in calculation mode
+          const circle = L.circle([hub.lat, hub.lon], {
+            radius: hub.radius * 1000,
+            color: color,
+            weight: isCalcTab ? 1 : 1.5,
+            fillColor: color,
+            fillOpacity: isCalcTab ? 0.03 : 0.08
+          }).addTo(STATE.map);
+          STATE.mapLayers.circles.push(circle);
+        });
+
+        // 2. Draw Oblasts
+        ukraineOblasts.forEach(obl => {
+          const assignedHubId = getAssignedHubId(obl, activeHubs);
+          const assignedHub = activeHubs.find(h => h.id === assignedHubId);
+          const isCovered = !!assignedHub;
+
+          const oblMarker = L.circleMarker([obl.lat, obl.lon], {
+            radius: 5,
+            fillColor: isCovered ? '#10b981' : '#ef4444',
+            color: '#ffffff',
+            weight: 2,
+            opacity: 1,
+            fillOpacity: 0.8
+          }).addTo(STATE.map).bindPopup(`<b>${escapeHtml(obl.name)}</b><br>${isCovered ? `Прив'язано до: ${escapeHtml(assignedHub.name)}` : 'Поза покриттям'}`);
+
+          STATE.mapLayers.oblasts.push(oblMarker);
+        });
+
+        // 3. TAB-BASED MAP ROUTE RENDERING
+        if (UIModule.currentTab === 'schedule') {
+          if (STATE.scheduleFilterDays.length > 0) {
+            this.renderScheduleRoutes(activeHubs);
+          } else {
+            this.renderCoverageConnectors(activeHubs);
+          }
+        } else if (UIModule.currentTab === 'calc') {
+          // On CALC tab: DO NOT draw coverage connectors to prevent clutter
+          if (STATE.calcResults && STATE.calcResults.length > 0) {
+            this.renderCalcRoutes();
+          }
+        } else {
+          // Coverage / FAQ / Departures tab
+          this.renderCoverageConnectors(activeHubs);
+        }
+      },
+
+      renderCoverageConnectors(activeHubs) {
+        ukraineOblasts.forEach(obl => {
+          const assignedHubId = getAssignedHubId(obl, activeHubs);
+          const assignedHub = activeHubs.find(h => h.id === assignedHubId);
+
+          if (assignedHub && assignedHub.lat && assignedHub.lon) {
+            const hubIdx = STATE.hubs.findIndex(h => h.id === assignedHub.id);
+            const lineColor = HUB_COLORS[hubIdx % HUB_COLORS.length];
+            const line = L.polyline([[assignedHub.lat, assignedHub.lon], [obl.lat, obl.lon]], {
+              color: lineColor,
+              weight: 2,
+              dashArray: '4, 8',
+              opacity: 0.6
+            }).addTo(STATE.map);
+
+            STATE.mapLayers.routes.push(line);
+          }
+        });
+      },
+
+      renderScheduleRoutes(activeHubs) {
+        activeHubs.forEach((hub, idx) => {
+          const baseColor = HUB_COLORS[idx % HUB_COLORS.length] || '#2563eb';
+          
+          const scheduledOblasts = ukraineOblasts.filter(obl => {
+            const key = `${hub.id}__${obl.name}`;
+            const activeDays = STATE.deliverySchedule[key] || [];
+            return STATE.scheduleFilterDays.some(d => activeDays.includes(d));
+          });
+
+          if (scheduledOblasts.length === 0) return;
+
+          let unvisited = [...scheduledOblasts];
+          let currLat = hub.lat;
+          let currLon = hub.lon;
+          const routePoints = [];
+
+          while (unvisited.length > 0) {
+            let nearestIdx = 0;
+            let minD = Infinity;
+            unvisited.forEach((obl, i) => {
+              const d = getDistanceKm(currLat, currLon, obl.lat, obl.lon);
+              if (d < minD) {
+                minD = d;
+                nearestIdx = i;
+              }
+            });
+            const nextObl = unvisited.splice(nearestIdx, 1)[0];
+            routePoints.push(nextObl);
+            currLat = nextObl.lat;
+            currLon = nextObl.lon;
+          }
+
+          const latlngs = [[hub.lat, hub.lon]];
+          routePoints.forEach((obl, stopIdx) => {
+            latlngs.push([obl.lat, obl.lon]);
+
+            const badgeHtml = `<div style="background-color: ${baseColor}; color: white; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: bold; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3);">
+              ${stopIdx + 1}
+            </div>`;
+
+            const customIcon = L.divIcon({
+              html: badgeHtml,
+              className: '',
+              iconSize: [24, 24],
+              iconAnchor: [12, 12]
+            });
+
+            const stopMarker = L.marker([obl.lat, obl.lon], { icon: customIcon })
+              .addTo(STATE.map)
+              .bindPopup(`<b>${obl.name}</b><br>Склад: ${escapeHtml(hub.name)}<br>Зупинка №${stopIdx + 1}`);
+
+            STATE.mapLayers.calcMarkers.push(stopMarker);
+          });
+
+          const routeLine = L.polyline(latlngs, {
+            color: baseColor,
+            weight: 3.5,
+            dashArray: '6, 8',
+            opacity: 0.9
+          }).addTo(STATE.map);
+
+          STATE.mapLayers.calcLines.push(routeLine);
+        });
+      },
+
+      renderCalcRoutes() {
+        if (!STATE.calcResults || STATE.calcResults.length === 0) return;
+
+        const hubGroups = {};
+        STATE.calcResults.forEach(res => {
+          if (!res.error && res.hub && res.coords) {
+            if (!hubGroups[res.hub.id]) {
+              hubGroups[res.hub.id] = { hub: res.hub, points: [] };
+            }
+            hubGroups[res.hub.id].points.push(res);
+          }
+        });
+
+        const DASH_STYLES = ['6, 8', '6, 8', '4, 6', '8, 4'];
+
+        Object.keys(hubGroups).forEach((hubId) => {
+          const group = hubGroups[hubId];
+          const hub = group.hub;
+          const hubIdx = STATE.hubs.findIndex(h => h.id === hub.id);
+          const baseColor = HUB_COLORS[hubIdx % HUB_COLORS.length] || '#2563eb';
+
+          const maxRoute = Math.max(1, ...group.points.map(p => p.routeNum || 1));
+
+          for (let rNum = 1; rNum <= maxRoute; rNum++) {
+            const routeKey = `${hub.id}__route_${rNum}`;
+            if (STATE.hiddenRoutes && STATE.hiddenRoutes[routeKey]) continue;
+
+            const subPoints = group.points.filter(p => (p.routeNum || 1) === rNum);
+            if (subPoints.length === 0) continue;
+
+            const latlngs = [[hub.lat, hub.lon]];
+            const dashStyle = DASH_STYLES[(rNum - 1) % DASH_STYLES.length] || '6, 8';
+
+            subPoints.forEach((pt, pIdx) => {
+              latlngs.push([pt.coords.lat, pt.coords.lon]);
+
+              const badgeLabel = `${rNum}.${pIdx + 1}`;
+              const markerHtml = `<div style="background-color: ${baseColor}; color: white; padding: 0 4px; min-width: 28px; height: 22px; border-radius: 11px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3);">
+                ${badgeLabel}
+              </div>`;
+
+              const customIcon = L.divIcon({
+                html: markerHtml,
+                className: '',
+                iconSize: [28, 22],
+                iconAnchor: [14, 11]
+              });
+
+              const marker = L.marker([pt.coords.lat, pt.coords.lon], { icon: customIcon })
+                .addTo(STATE.map)
+                .bindPopup(`<b>${escapeHtml(pt.address)}</b><br>Склад відвантаження: ${escapeHtml(hub.name)}<br>Рейс: ${rNum}<br>Точка: ${badgeLabel}<br>Відстань: ${pt.dist} км`);
+
+              STATE.mapLayers.calcMarkers.push(marker);
+            });
+
+            const routeLine = L.polyline(latlngs, {
+              color: baseColor,
+              weight: 3.5,
+              dashArray: dashStyle,
+              opacity: 0.85
+            }).addTo(STATE.map);
+
+            STATE.mapLayers.calcLines.push(routeLine);
+          }
+        });
+      }
+    };
+
+    const HubsModule = {
+      renderList() {
+        const container = document.getElementById('hubsList');
+        if (!container) return;
+        container.innerHTML = '';
+
+        STATE.hubs.forEach((hub, idx) => {
+          const color = HUB_COLORS[idx % HUB_COLORS.length];
+          const div = document.createElement('div');
+          div.className = `p-3 rounded-xl border border-slate-200 bg-white shadow-sm hover:shadow-md transition flex flex-col gap-2 ${!hub.active ? 'opacity-50' : ''}`;
+          
+          let mapsLink = hub.address;
+          if (hub.lat && hub.lon) {
+            mapsLink = `https://www.google.com/maps?q=${hub.lat},${hub.lon}`;
+          }
+
+          div.innerHTML = `
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <span class="w-3 h-3 rounded-full" style="background-color: ${color}"></span>
+                <span class="font-bold text-sm text-slate-800">${escapeHtml(hub.name)}</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <input type="checkbox" ${hub.active ? 'checked' : ''} onchange="HubsModule.toggleActive('${hub.id}')" class="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer">
+                <button onclick="HubsModule.openEditModal('${hub.id}')" class="text-slate-400 hover:text-blue-600 p-1"><i class="fa-solid fa-pen"></i></button>
+                <button onclick="HubsModule.deleteHub('${hub.id}')" class="text-slate-400 hover:text-red-600 p-1"><i class="fa-solid fa-trash"></i></button>
+              </div>
+            </div>
+            <div class="text-xs text-slate-500 flex items-center justify-between">
+              <span class="truncate max-w-[200px]"><i class="fa-solid fa-location-dot mr-1"></i> ${escapeHtml(hub.address)}</span>
+              <a href="${mapsLink}" target="_blank" class="text-blue-600 hover:underline flex items-center gap-1 font-semibold">Карта <i class="fa-solid fa-arrow-up-right-from-square text-[10px]"></i></a>
+            </div>
+            <div class="flex justify-between items-center text-xs font-semibold text-slate-600 bg-slate-50 p-2 rounded-lg mt-1 border border-slate-100">
+              <span>Радіус: <strong class="text-slate-800">${hub.radius} км</strong></span>
+              <span>Тариф: <strong class="text-slate-800">${hub.tariff} грн/км</strong></span>
+            </div>
+          `;
+          container.appendChild(div);
+        });
+
+        StorageModule.save();
+      },
+
+      toggleActive(id) {
+        const hub = STATE.hubs.find(h => h.id === id);
+        if (hub) {
+          hub.active = !hub.active;
+          this.renderList();
+          MapModule.renderAll();
+          if (UIModule.currentTab === 'coverage') UIModule.renderCoverage();
+          if (UIModule.currentTab === 'schedule') UIModule.renderSchedule();
+        }
+      },
+
+      openAddModal() {
+        document.getElementById('hubModalTitle').innerText = 'Додати склад відвантаження';
+        document.getElementById('modalHubId').value = '';
+        document.getElementById('modalHubName').value = '';
+        document.getElementById('modalHubAddress').value = '';
+        document.getElementById('modalHubRadius').value = '250';
+        document.getElementById('modalHubTariff').value = '35';
+        document.getElementById('hubModal').classList.remove('hidden');
+      },
+
+      openEditModal(id) {
+        const hub = STATE.hubs.find(h => h.id === id);
+        if (!hub) return;
+        document.getElementById('hubModalTitle').innerText = 'Редагувати склад відвантаження';
+        document.getElementById('modalHubId').value = hub.id;
+        document.getElementById('modalHubName').value = hub.name;
+        document.getElementById('modalHubAddress').value = hub.address;
+        document.getElementById('modalHubRadius').value = hub.radius;
+        document.getElementById('modalHubTariff').value = hub.tariff;
+        document.getElementById('hubModal').classList.remove('hidden');
+      },
+
+      closeModal() {
+        document.getElementById('hubModal').classList.add('hidden');
+      },
+
+      async saveHub() {
+        const id = document.getElementById('modalHubId').value;
+        const name = document.getElementById('modalHubName').value.trim();
+        const address = document.getElementById('modalHubAddress').value.trim();
+        const radius = parseFloat(document.getElementById('modalHubRadius').value) || 250;
+        const tariff = parseFloat(document.getElementById('modalHubTariff').value) || 35;
+
+        if (!name || !address) {
+          UIModule.showToast('Заповніть всі обов\'язкові поля');
+          return;
+        }
+
+        const coords = await geocodeAddress(address);
+
+        if (id) {
+          const hub = STATE.hubs.find(h => h.id === id);
+          if (hub) {
+            hub.name = name;
+            hub.address = address;
+            hub.radius = radius;
+            hub.tariff = tariff;
+            if (coords) { hub.lat = coords.lat; hub.lon = coords.lon; }
+          }
+        } else {
+          STATE.hubs.push({
+            id: 'h_' + Date.now(),
+            name,
+            address,
+            lat: coords ? coords.lat : 49.0,
+            lon: coords ? coords.lon : 31.0,
+            radius,
+            tariff,
+            active: true
+          });
+        }
+
+        this.closeModal();
+        this.renderList();
+        MapModule.renderAll();
+        UIModule.showToast('Склад відвантаження успішно збережено!');
+      },
+
+      deleteHub(id) {
+        showConfirmModal('Видалення складу', 'Ви дійсно бажаєте видалити цей склад відвантаження?', () => {
+          STATE.hubs = STATE.hubs.filter(h => h.id !== id);
+          this.renderList();
+          MapModule.renderAll();
+          UIModule.showToast('Склад відвантаження видалено');
+        });
+      },
+
+      pickLocationOnMap() {
+        this.closeModal();
+        UIModule.showToast('Клікніть на карті для вибору координат складу відвантаження');
+        document.getElementById('map').classList.add('crosshair-cursor');
+
+        const onMapClick = async (e) => {
+          STATE.map.off('click', onMapClick);
+          document.getElementById('map').classList.remove('crosshair-cursor');
+          const lat = e.latlng.lat.toFixed(5);
+          const lon = e.latlng.lng.toFixed(5);
+          document.getElementById('modalHubAddress').value = `${lat}, ${lon}`;
+          document.getElementById('hubModal').classList.remove('hidden');
+          UIModule.showToast(`Координати вибрано: ${lat}, ${lon}`);
+        };
+
+        STATE.map.on('click', onMapClick);
+      }
+    };
+
+    const StorageModule = {
+      save() {
+        const data = {
+          hubs: STATE.hubs,
+          manualBindings: STATE.manualBindings,
+          deliverySchedule: STATE.deliverySchedule,
+          calcAddressText: STATE.calcAddressText,
+          calcResults: STATE.calcResults,
+          hiddenRoutes: STATE.hiddenRoutes
+        };
+        localStorage.setItem('shipment_dispatcher_state', JSON.stringify(data));
+      },
+
+      load() {
+        const saved = localStorage.getItem('shipment_dispatcher_state') || localStorage.getItem('logistics_app_state');
+        if (saved) {
+          try {
+            const parsed = JSON.parse(saved);
+            if (parsed.hubs) STATE.hubs = parsed.hubs;
+            if (parsed.manualBindings) STATE.manualBindings = parsed.manualBindings;
+            if (parsed.deliverySchedule) STATE.deliverySchedule = parsed.deliverySchedule;
+            if (parsed.calcAddressText) STATE.calcAddressText = parsed.calcAddressText;
+            if (parsed.calcResults) STATE.calcResults = parsed.calcResults;
+            if (parsed.hiddenRoutes) STATE.hiddenRoutes = parsed.hiddenRoutes;
+          } catch (e) {
+            console.error("Storage load error:", e);
+          }
+        }
+      },
+
+      exportJSON() {
+        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify({
+          hubs: STATE.hubs,
+          manualBindings: STATE.manualBindings,
+          deliverySchedule: STATE.deliverySchedule,
+          calcAddressText: STATE.calcAddressText,
+          calcResults: STATE.calcResults,
+          hiddenRoutes: STATE.hiddenRoutes
+        }, null, 2));
+        const downloadAnchor = document.createElement('a');
+        downloadAnchor.setAttribute("href", dataStr);
+        downloadAnchor.setAttribute("download", `shipment_dispatcher_config_${new Date().toISOString().slice(0,10)}.json`);
+        document.body.appendChild(downloadAnchor);
+        downloadAnchor.click();
+        downloadAnchor.remove();
+        UIModule.showToast("Конфігурацію експортовано");
+      },
+
+      importJSON(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = function(e) {
+          try {
+            const imported = JSON.parse(e.target.result);
+            if (imported.hubs) STATE.hubs = imported.hubs;
+            if (imported.manualBindings) STATE.manualBindings = imported.manualBindings;
+            if (imported.deliverySchedule) STATE.deliverySchedule = imported.deliverySchedule;
+            if (imported.calcAddressText) STATE.calcAddressText = imported.calcAddressText;
+            if (imported.calcResults) STATE.calcResults = imported.calcResults;
+            if (imported.hiddenRoutes) STATE.hiddenRoutes = imported.hiddenRoutes;
+            StorageModule.save();
+            HubsModule.renderList();
+            MapModule.renderAll();
+            if (UIModule.currentTab) UIModule.openTab(UIModule.currentTab);
+            UIModule.showToast("Дані успішно імпортовано!");
+          } catch (err) {
+            UIModule.showToast("Помилка файлу конфігурації!");
+          }
+        };
+        reader.readAsText(file);
+      }
+    };
+
+    const UIModule = {
+      currentTab: 'calc',
+
+      toggleLeftPanel() {
+        document.getElementById('leftPanel').classList.toggle('-translate-x-full');
+      },
+
+      toggleRightPanel() {
+        document.getElementById('rightPanel').classList.toggle('translate-x-full');
+      },
+
+      toggleFullscreenRightPanel() {
+        const panel = document.getElementById('rightPanel');
+        panel.classList.toggle('sm:w-[600px]');
+        panel.classList.toggle('md:w-[700px]');
+        panel.classList.toggle('w-full');
+      },
+
+      showToast(msg) {
+        const toast = document.getElementById('toast');
+        document.getElementById('toastMsg').innerText = msg;
+        toast.classList.remove('opacity-0');
+        setTimeout(() => toast.classList.add('opacity-0'), 2500);
+      },
+
+      openTab(tab) {
+        this.currentTab = tab;
+        const title = document.getElementById('rightPanelTitle');
+        const panel = document.getElementById('rightPanel');
+
+        ['navCalcBtn', 'navCoverageBtn', 'navScheduleBtn', 'navDeparturesBtn', 'navFaqBtn'].forEach(id => {
+          const btn = document.getElementById(id);
+          if (btn) {
+            btn.className = "px-3 py-2 rounded-lg text-xs font-bold transition flex items-center gap-1.5 text-slate-300 hover:text-white hover:bg-slate-800";
+          }
+        });
+
+        panel.classList.remove('translate-x-full');
+
+        if (tab === 'calc') {
+          document.getElementById('navCalcBtn').className = "px-3 py-2 rounded-lg text-xs font-bold transition flex items-center gap-1.5 text-white bg-blue-600 shadow-md";
+          title.innerHTML = '<i class="fa-solid fa-calculator text-blue-400"></i> Розрахунок логістики';
+          this.renderCalculation();
+        } else if (tab === 'coverage') {
+          document.getElementById('navCoverageBtn').className = "px-3 py-2 rounded-lg text-xs font-bold transition flex items-center gap-1.5 text-white bg-blue-600 shadow-md";
+          title.innerHTML = '<i class="fa-solid fa-chart-pie text-blue-400"></i> Аналіз покриття областей';
+          this.renderCoverage();
+        } else if (tab === 'schedule') {
+          document.getElementById('navScheduleBtn').className = "px-3 py-2 rounded-lg text-xs font-bold transition flex items-center gap-1.5 text-white bg-blue-600 shadow-md";
+          title.innerHTML = '<i class="fa-solid fa-calendar-days text-blue-400"></i> Графік доставки';
+          this.renderSchedule();
+        } else if (tab === 'departures') {
+          document.getElementById('navDeparturesBtn').className = "px-3 py-2 rounded-lg text-xs font-bold transition flex items-center gap-1.5 text-white bg-blue-600 shadow-md";
+          title.innerHTML = '<i class="fa-solid fa-truck-arrow-right text-blue-400"></i> Графік виїздів зі складів';
+          this.renderDepartures();
+        } else if (tab === 'faq') {
+          document.getElementById('navFaqBtn').className = "px-3 py-2 rounded-lg text-xs font-bold transition flex items-center gap-1.5 text-white bg-blue-600 shadow-md";
+          title.innerHTML = '<i class="fa-solid fa-circle-question text-blue-400"></i> Довідка та FAQ';
+          this.renderFAQ();
+        }
+
+        MapModule.renderAll();
+      },
+
+      renderCalculation() {
+        const container = document.getElementById('rightPanelContent');
+        container.innerHTML = `
+          <div class="space-y-4">
+            <div class="bg-blue-50 border border-blue-200 p-3 rounded-xl text-xs text-blue-900 flex items-start gap-2.5">
+              <i class="fa-solid fa-circle-info text-blue-600 text-sm mt-0.5"></i>
+              <div>
+                <strong class="font-bold">Формат вводу адрес:</strong>
+                <p class="text-[11px] text-blue-800 mt-0.5">Вводьте адреси через кому у форматі: <code>Область, Місто, Вулиця, Будинок</code> (по одній на рядок).</p>
+              </div>
+            </div>
+
+            <div class="bg-slate-50 border border-slate-200 p-4 rounded-xl space-y-3">
+              <div class="flex justify-between items-center">
+                <label class="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                  <i class="fa-solid fa-list-check text-blue-600"></i> Список точок доставки:
+                </label>
+                <button onclick="UIModule.fillTestAddressList()" class="text-xs font-semibold text-blue-600 hover:underline">+ Тестовий список</button>
+              </div>
+              <textarea id="calcAddressInput" onchange="STATE.calcAddressText = this.value; StorageModule.save();" rows="5" class="w-full p-3 border border-slate-300 rounded-lg text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Харківська, Харків, Стрілецький, 16&#10;Житомирська, Житомир, Київська, 10">${escapeHtml(STATE.calcAddressText || '')}</textarea>
+              <div class="flex flex-wrap items-center justify-between gap-2 pt-1">
+                <div class="flex items-center gap-2">
+                  <button onclick="UIModule.processAddressCalculation()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-xs font-bold transition flex items-center gap-2 shadow-md">
+                    <i class="fa-solid fa-play"></i> Обробити та розподілити
+                  </button>
+                  <button onclick="UIModule.clearCalculation()" class="bg-red-50 hover:bg-red-100 text-red-600 px-3 py-2 rounded-lg text-xs font-bold transition flex items-center gap-1.5 border border-red-200">
+                    <i class="fa-solid fa-trash-can"></i> Очистити
+                  </button>
+                </div>
+                <button onclick="UIModule.exportCalcCSV()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-lg text-xs font-bold transition flex items-center gap-1.5 border border-slate-300">
+                  <i class="fa-solid fa-file-csv"></i> Експорт CSV
+                </button>
+              </div>
+            </div>
+
+            <div id="calcResultsContainer" class="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+            </div>
+          </div>
+        `;
+
+        this.renderCalcTable();
+      },
+
+      fillTestAddressList() {
+        const testText = [
+          "Харківська, Харків, Стрілецький, 16",
+          "Житомирська, Житомир, Київська, 10",
+          "Житомирська, Бердичів, Європейська, 15",
+          "Черкаська, Черкаси, Хрещатик, 25",
+          "Полтавська, Кременчук, Соборна, 5",
+          "Вінницька, Хмільник, Столярчука, 1"
+        ].join('\n');
+        
+        STATE.calcAddressText = testText;
+        const input = document.getElementById('calcAddressInput');
+        if (input) input.value = testText;
+        StorageModule.save();
+      },
+
+      async processAddressCalculation() {
+        const text = document.getElementById('calcAddressInput')?.value || '';
+        STATE.calcAddressText = text;
+        const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+        const container = document.getElementById('calcResultsContainer');
+
+        if (lines.length === 0) {
+          this.showToast('Введіть хоча б одну адресу');
+          return;
+        }
+
+        container.innerHTML = `
+          <div class="p-8 text-center text-slate-500 text-xs flex items-center justify-center gap-2">
+            <i class="fa-solid fa-spinner fa-spin text-blue-600 text-base"></i> Обробка адрес та геокодування...
+          </div>
+        `;
+
+        const activeHubs = STATE.hubs.filter(h => h.active);
+        const results = [];
+
+        for (const address of lines) {
+          const coords = await geocodeAddress(address);
+          if (!coords) {
+            results.push({ address, hub: null, dist: 0, cost: 0, routeNum: 1, error: true });
+            continue;
+          }
+
+          let matchedHub = null;
+          let minDistance = Infinity;
+
+          const matchedOblast = ukraineOblasts.find(o => 
+            address.toLowerCase().includes(o.name.toLowerCase().replace(" область", "").replace("автономна республіка ", ""))
+          );
+          if (matchedOblast && STATE.manualBindings[matchedOblast.name]) {
+            matchedHub = activeHubs.find(h => h.id === STATE.manualBindings[matchedOblast.name]);
+          }
+
+          if (!matchedHub) {
+            activeHubs.forEach(h => {
+              if (h.lat && h.lon) {
+                const dist = getDistanceKm(h.lat, h.lon, coords.lat, coords.lon);
+                if (dist < minDistance) {
+                  minDistance = dist;
+                  matchedHub = h;
+                }
+              }
+            });
+          }
+
+          results.push({
+            address,
+            hub: matchedHub,
+            dist: 0,
+            cost: 0,
+            coords,
+            routeNum: 1,
+            error: !matchedHub
+          });
+        }
+
+        STATE.calcResults = results;
+        StorageModule.save();
+        this.renderCalcTable();
+      },
+
+      renderCalcTable() {
+        const container = document.getElementById('calcResultsContainer');
+        if (!container) return;
+
+        if (!STATE.calcResults || STATE.calcResults.length === 0) {
+          container.innerHTML = `
+            <div class="p-8 text-center text-slate-400 text-xs">
+              <i class="fa-solid fa-truck text-3xl mb-2 text-slate-300"></i>
+              <p>Введіть адреси та натисніть «Обробити» для розрахунку</p>
+            </div>
+          `;
+          MapModule.renderAll();
+          return;
+        }
+
+        const hubGroups = {};
+        const unassignedList = [];
+
+        STATE.calcResults.forEach((res, origIndex) => {
+          res._origIndex = origIndex;
+          if (res.error || !res.hub) {
+            unassignedList.push(res);
+          } else {
+            if (!hubGroups[res.hub.id]) {
+              hubGroups[res.hub.id] = { hub: res.hub, points: [] };
+            }
+            hubGroups[res.hub.id].points.push(res);
+          }
+        });
+
+        Object.keys(hubGroups).forEach(hubId => {
+          const group = hubGroups[hubId];
+          const hub = group.hub;
+          const maxRoute = Math.max(1, ...group.points.map(p => p.routeNum || 1));
+          
+          for (let rNum = 1; rNum <= maxRoute; rNum++) {
+            const subPoints = group.points.filter(p => (p.routeNum || 1) === rNum);
+            let prevLat = hub.lat;
+            let prevLon = hub.lon;
+            
+            subPoints.forEach(p => {
+              if (p.coords && prevLat && prevLon) {
+                p.dist = getDistanceKm(prevLat, prevLon, p.coords.lat, p.coords.lon);
+                p.cost = p.dist * (hub.tariff || 0);
+                prevLat = p.coords.lat;
+                prevLon = p.coords.lon;
+              }
+            });
+          }
+        });
+
+        let totalKmAll = 0;
+        let totalCostAll = 0;
+        let successCountAll = 0;
+
+        STATE.calcResults.forEach(r => {
+          if (!r.error) {
+            totalKmAll += r.dist;
+            totalCostAll += r.cost;
+            successCountAll++;
+          }
+        });
+
+        let html = `
+          <div class="p-3 bg-slate-900 text-white flex justify-between items-center text-xs font-bold">
+            <span>Усього оброблено: <strong class="text-blue-400">${successCountAll} точок</strong></span>
+            <div class="flex gap-4">
+              <span>Загальний пробіг: <strong class="text-emerald-400">${totalKmAll} км</strong></span>
+              <span>Сума: <strong class="text-amber-400">${totalCostAll.toLocaleString()} грн</strong></span>
+            </div>
+          </div>
+          <div class="divide-y divide-slate-200">
+        `;
+
+        Object.keys(hubGroups).forEach(hubId => {
+          const group = hubGroups[hubId];
+          const hub = group.hub;
+          const hubPoints = group.points;
+
+          let groupKm = 0;
+          let groupCost = 0;
+          hubPoints.forEach(p => { groupKm += p.dist; groupCost += p.cost; });
+
+          html += `
+            <div class="bg-slate-50 p-2.5 font-bold text-xs text-slate-800 flex justify-between items-center border-b border-slate-200">
+              <span class="flex items-center gap-1.5"><i class="fa-solid fa-warehouse text-blue-600"></i> ${escapeHtml(hub.name)}</span>
+              <span class="text-slate-600 font-semibold">${groupKm} км | ${groupCost.toLocaleString()} грн</span>
+            </div>
+          `;
+
+          const maxRoute = Math.max(1, ...hubPoints.map(p => p.routeNum || 1));
+
+          for (let rNum = 1; rNum <= maxRoute; rNum++) {
+            const routeKey = `${hub.id}__route_${rNum}`;
+            const isHidden = STATE.hiddenRoutes && STATE.hiddenRoutes[routeKey];
+            const subPoints = hubPoints.filter(p => (p.routeNum || 1) === rNum);
+
+            if (subPoints.length === 0) continue;
+
+            html += `
+              <div class="bg-slate-100/70 px-3 py-1.5 flex justify-between items-center border-t border-slate-200 text-xs font-bold text-slate-700">
+                <span class="flex items-center gap-2">
+                  <i class="fa-solid fa-route text-blue-600"></i> Рейс ${rNum} (${subPoints.length} точок)
+                </span>
+                <button onclick="UIModule.toggleRouteVisibility('${hub.id}', ${rNum})" class="text-[10px] px-2 py-0.5 rounded font-bold transition ${isHidden ? 'bg-slate-200 text-slate-500 hover:bg-slate-300' : 'bg-blue-100 text-blue-700 hover:bg-blue-200'}">
+                  <i class="fa-solid ${isHidden ? 'fa-eye-slash' : 'fa-eye'} mr-1"></i> ${isHidden ? 'Сховано' : 'На карті'}
+                </button>
+              </div>
+              <table class="w-full text-left text-xs">
+                <thead class="bg-slate-100 text-slate-500 font-bold uppercase text-[10px]">
+                  <tr>
+                    <th class="p-2 w-12 text-center">Точка</th>
+                    <th class="p-2 w-16 text-center">Черга</th>
+                    <th class="p-2 w-28">Рейс</th>
+                    <th class="p-2">Адреса доставки</th>
+                    <th class="p-2 text-right">Відстань</th>
+                    <th class="p-2 text-right">Вартість</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+            `;
+
+            subPoints.forEach((p, subIdx) => {
+              const globalIdx = p._origIndex;
+
+              let selectOptions = '';
+              for (let r = 1; r <= maxRoute + 1; r++) {
+                const isSelected = (p.routeNum || 1) === r;
+                const label = (r > maxRoute) ? `+ Новий рейс (${r})` : `Рейс ${r}`;
+                selectOptions += `<option value="${r}" ${isSelected ? 'selected' : ''}>${label}</option>`;
+              }
+
+              html += `
+                <tr class="hover:bg-slate-50/80">
+                  <td class="p-2 text-center font-bold text-blue-600">${rNum}.${subIdx + 1}</td>
+                  <td class="p-2 text-center">
+                    <div class="flex justify-center gap-1">
+                      <button onclick="UIModule.moveCalcPoint(${globalIdx}, -1)" ${subIdx === 0 ? 'disabled class="opacity-20"' : 'class="hover:text-blue-600"'}><i class="fa-solid fa-circle-arrow-up text-sm"></i></button>
+                      <button onclick="UIModule.moveCalcPoint(${globalIdx}, 1)" ${subIdx === subPoints.length - 1 ? 'disabled class="opacity-20"' : 'class="hover:text-blue-600"'}><i class="fa-solid fa-circle-arrow-down text-sm"></i></button>
+                    </div>
+                  </td>
+                  <td class="p-2">
+                    <select onchange="UIModule.changeCalcRoute(${globalIdx}, this.value)" class="p-1 border border-slate-300 rounded text-[11px] bg-white font-semibold focus:outline-none">
+                      ${selectOptions}
+                    </select>
+                  </td>
+                  <td class="p-2 font-medium text-slate-800">${escapeHtml(p.address)}</td>
+                  <td class="p-2 text-right font-bold text-slate-700">${p.dist} км</td>
+                  <td class="p-2 text-right font-bold text-slate-800">${p.cost.toLocaleString()} грн</td>
+                </tr>
+              `;
+            });
+
+            html += `</tbody></table>`;
+          }
+        });
+
+        if (unassignedList.length > 0) {
+          html += `
+            <div class="bg-red-50 p-2 font-bold text-xs text-red-700 border-b border-red-200">
+              <i class="fa-solid fa-triangle-exclamation mr-1"></i> Нерозподілені точки (${unassignedList.length})
+            </div>
+            <table class="w-full text-left text-xs">
+              <tbody class="divide-y divide-slate-100">
+          `;
+          unassignedList.forEach(p => {
+            html += `
+              <tr>
+                <td class="p-2 font-medium text-slate-800" colspan="4">${escapeHtml(p.address)}</td>
+                <td class="p-2 text-right font-bold text-red-500" colspan="2">Помилка адреси / складу</td>
+              </tr>
+            `;
+          });
+          html += `</tbody></table>`;
+        }
+
+        html += `</div>`;
+        container.innerHTML = html;
+
+        MapModule.renderAll();
+      },
+
+      toggleRouteVisibility(hubId, rNum) {
+        if (!STATE.hiddenRoutes) STATE.hiddenRoutes = {};
+        const key = `${hubId}__route_${rNum}`;
+        STATE.hiddenRoutes[key] = !STATE.hiddenRoutes[key];
+        StorageModule.save();
+        this.renderCalcTable();
+      },
+
+      moveCalcPoint(index, direction) {
+        const item = STATE.calcResults[index];
+        if (!item) return;
+
+        const currentHubId = item.hub ? item.hub.id : null;
+        const currentRouteNum = item.routeNum || 1;
+
+        let targetIndex = index + direction;
+        while (targetIndex >= 0 && targetIndex < STATE.calcResults.length) {
+          const candidate = STATE.calcResults[targetIndex];
+          if (candidate.hub && candidate.hub.id === currentHubId && (candidate.routeNum || 1) === currentRouteNum) {
+            STATE.calcResults[index] = candidate;
+            STATE.calcResults[targetIndex] = item;
+            StorageModule.save();
+            this.renderCalcTable();
+            return;
+          }
+          targetIndex += direction;
+        }
+      },
+
+      changeCalcRoute(index, newRouteNum) {
+        if (STATE.calcResults[index]) {
+          STATE.calcResults[index].routeNum = parseInt(newRouteNum);
+          StorageModule.save();
+          this.renderCalcTable();
+        }
+      },
+
+      clearCalculation() {
+        showConfirmModal('Очищення розрахунку', 'Очистити введені адреси та результати?', () => {
+          STATE.calcAddressText = '';
+          STATE.calcResults = [];
+          StorageModule.save();
+          this.renderCalculation();
+          MapModule.renderAll();
+          this.showToast('Розрахунок очищено');
+        });
+      },
+
+      exportCalcCSV() {
+        if (!STATE.calcResults || STATE.calcResults.length === 0) {
+          this.showToast('Немає даних для експорту');
+          return;
+        }
+
+        let csvContent = "data:text/csv;charset=utf-8,Адреса,Склад_відвантаження,Рейс,Точка,Відстань_км,Витрати_грн\n";
+        STATE.calcResults.forEach(r => {
+          const hubName = r.hub ? r.hub.name : 'Невизначено';
+          csvContent += `"${r.address.replace(/"/g, '""')}","${hubName}",${r.routeNum || 1},${r.dist || 0},${r.cost || 0}\n`;
+        });
+
+        const encodedUri = encodeURI(csvContent);
+        const link = document.createElement("a");
+        link.setAttribute("href", encodedUri);
+        link.setAttribute("download", `shipment_dispatcher_${new Date().toISOString().slice(0,10)}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        this.showToast('CSV файл успішно завантажено');
+      },
+
+      renderCoverage() {
+        const activeHubs = STATE.hubs.filter(h => h.active);
+        const container = document.getElementById('rightPanelContent');
+
+        let coveredCount = 0;
+        ukraineOblasts.forEach(obl => {
+          if (getAssignedHubId(obl, activeHubs)) coveredCount++;
+        });
+
+        const percent = Math.round((coveredCount / ukraineOblasts.length) * 100);
+
+        container.innerHTML = `
+          <div class="space-y-4">
+            <div class="bg-blue-50 border border-blue-100 p-4 rounded-xl flex items-center justify-between">
+              <div>
+                <div class="text-xs font-bold text-blue-600 uppercase">Покриття областей України</div>
+                <div class="text-xl font-bold text-slate-800">${coveredCount} з ${ukraineOblasts.length} (${percent}%)</div>
+              </div>
+              <button onclick="UIModule.resetBindings()" class="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-bold rounded-lg transition">
+                <i class="fa-solid fa-rotate-left"></i> Скинути
+              </button>
+            </div>
+
+            <div class="bg-slate-50 border border-slate-200 rounded-xl overflow-hidden">
+              <table class="w-full text-left text-xs">
+                <thead class="bg-slate-100 border-b border-slate-200 text-slate-600 font-bold uppercase">
+                  <tr>
+                    <th class="p-3">Область</th>
+                    <th class="p-3">Статус</th>
+                    <th class="p-3">Прив'язаний Склад (з відстанями)</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-200">
+                  ${ukraineOblasts.map(obl => {
+                    const currentBoundId = getAssignedHubId(obl, activeHubs);
+                    const isCovered = !!currentBoundId;
+
+                    return `<tr>
+                      <td class="p-3 font-semibold text-slate-800">${obl.name}</td>
+                      <td class="p-3">
+                        <span class="px-2 py-1 rounded-md text-[10px] font-bold ${isCovered ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}">
+                          ${isCovered ? 'Покрито' : 'Поза радіусом'}
+                        </span>
+                      </td>
+                      <td class="p-3">
+                        <select onchange="UIModule.setBinding('${obl.name}', this.value)" class="w-full p-2 border border-slate-300 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                          <option value="" ${!currentBoundId ? 'selected' : ''}>❌ Не закріплено</option>
+                          ${activeHubs.map(h => {
+                            const dist = (h.lat && h.lon) ? getDistanceKm(h.lat, h.lon, obl.lat, obl.lon) : '-';
+                            const isSelected = currentBoundId === h.id;
+                            const inRadius = dist <= h.radius;
+                            return `<option value="${h.id}" ${isSelected ? 'selected' : ''}>
+                              ${escapeHtml(h.name)} (${dist} км) ${inRadius ? '✅' : '⚠️'}
+                            </option>`;
+                          }).join('')}
+                        </select>
+                      </td>
+                    </tr>`;
+                  }).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        `;
+      },
+
+      setBinding(oblast, hubId) {
+        if (hubId) {
+          STATE.manualBindings[oblast] = hubId;
+        } else {
+          delete STATE.manualBindings[oblast];
+        }
+        StorageModule.save();
+        MapModule.renderAll();
+        this.renderCoverage();
+      },
+
+      resetBindings() {
+        STATE.manualBindings = {};
+        StorageModule.save();
+        MapModule.renderAll();
+        this.renderCoverage();
+        this.showToast('Прив\'язки скинуто до автоматичних');
+      },
+
+      renderSchedule() {
+        const container = document.getElementById('rightPanelContent');
+        const activeHubs = STATE.hubs.filter(h => h.active);
+
+        container.innerHTML = `
+          <div class="space-y-4">
+            <div class="flex flex-wrap items-center justify-between gap-2 bg-slate-50 p-3 rounded-xl border border-slate-200">
+              <div class="flex items-center bg-slate-200 p-1 rounded-lg">
+                <button onclick="UIModule.setScheduleMode('hubs')" class="px-3 py-1.5 rounded-md text-xs font-bold transition ${STATE.scheduleViewMode === 'hubs' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'}">
+                  🏢 За складами
+                </button>
+                <button onclick="UIModule.setScheduleMode('oblasts')" class="px-3 py-1.5 rounded-md text-xs font-bold transition ${STATE.scheduleViewMode === 'oblasts' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'}">
+                  📍 За областями
+                </button>
+              </div>
+
+              <div class="flex items-center gap-2">
+                <button onclick="StorageModule.exportJSON()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold rounded-lg transition flex items-center gap-1">
+                  <i class="fa-solid fa-download"></i> Експорт
+                </button>
+                <label class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold rounded-lg transition cursor-pointer flex items-center gap-1">
+                  <i class="fa-solid fa-upload"></i> Імпорт
+                  <input type="file" accept=".json" onchange="StorageModule.importJSON(event)" class="hidden">
+                </label>
+                <button onclick="UIModule.clearSchedule()" class="px-3 py-1.5 bg-red-100 hover:bg-red-200 text-red-700 text-xs font-bold rounded-lg transition flex items-center gap-1">
+                  <i class="fa-solid fa-trash-can"></i> Очистити графік
+                </button>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-1.5 bg-slate-100 p-2 rounded-xl overflow-x-auto">
+              <span class="text-xs font-bold text-slate-500 mr-2 uppercase">Фільтр:</span>
+              <button onclick="UIModule.toggleScheduleFilterDay('all')" class="px-3 py-1 rounded-lg text-xs font-bold transition ${STATE.scheduleFilterDays.length === 0 ? 'bg-blue-600 text-white shadow' : 'bg-white text-slate-700 hover:bg-slate-200'}">
+                Всі дні
+              </button>
+              ${daysList.map(d => {
+                const isActive = STATE.scheduleFilterDays.includes(d.id);
+                return `<button onclick="UIModule.toggleScheduleFilterDay('${d.id}')" class="px-2.5 py-1 rounded-lg text-xs font-bold transition ${isActive ? 'bg-blue-600 text-white shadow' : 'bg-white text-slate-700 hover:bg-slate-200'}">
+                  ${d.name}
+                </button>`;
+              }).join('')}
+            </div>
+
+            <div id="scheduleMatrixContainer" class="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm"></div>
+          </div>
+        `;
+
+        if (STATE.scheduleViewMode === 'hubs') {
+          this.renderScheduleByHubs(activeHubs);
+        } else {
+          this.renderScheduleByOblasts(activeHubs);
+        }
+      },
+
+      setScheduleMode(mode) {
+        STATE.scheduleViewMode = mode;
+        this.renderSchedule();
+      },
+
+      toggleScheduleFilterDay(dayId) {
+        if (dayId === 'all') {
+          STATE.scheduleFilterDays = [];
+        } else {
+          const idx = STATE.scheduleFilterDays.indexOf(dayId);
+          if (idx > -1) {
+            STATE.scheduleFilterDays.splice(idx, 1);
+          } else {
+            STATE.scheduleFilterDays.push(dayId);
+          }
+        }
+        this.renderSchedule();
+        MapModule.renderAll();
+      },
+
+      clearSchedule() {
+        showConfirmModal('Очищення графіку', 'Ви дійсно бажаєте очистити увесь графік доставки?', () => {
+          STATE.deliverySchedule = {};
+          StorageModule.save();
+          this.renderSchedule();
+          MapModule.renderAll();
+          this.showToast('Графік доставки очищено');
+        });
+      },
+
+      toggleScheduleDay(hubId, oblastName, dayId) {
+        const key = `${hubId}__${oblastName}`;
+        if (!STATE.deliverySchedule[key]) {
+          STATE.deliverySchedule[key] = [];
+        }
+        const idx = STATE.deliverySchedule[key].indexOf(dayId);
+        if (idx > -1) {
+          STATE.deliverySchedule[key].splice(idx, 1);
+        } else {
+          STATE.deliverySchedule[key].push(dayId);
+        }
+        StorageModule.save();
+        this.renderSchedule();
+        MapModule.renderAll();
+      },
+
+      renderScheduleByHubs(activeHubs) {
+        const container = document.getElementById('scheduleMatrixContainer');
+        if (!container) return;
+
+        let html = `
+          <table class="w-full text-left text-xs border-collapse">
+            <thead class="bg-slate-900 text-white font-bold">
+              <tr>
+                <th class="p-3 w-1/2">Напрямок / Область (відстань)</th>
+                ${daysList.map(d => `<th class="p-2 text-center w-8">${d.name}</th>`).join('')}
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-200">
+        `;
+
+        activeHubs.forEach((hub, idx) => {
+          const color = HUB_COLORS[idx % HUB_COLORS.length];
+          const primaryOblasts = ukraineOblasts.filter(obl => getAssignedHubId(obl, activeHubs) === hub.id);
+
+          html += `
+            <tr class="bg-slate-100 border-t-2 border-slate-300 font-bold">
+              <td colspan="8" class="p-2.5 text-slate-800 flex items-center justify-between">
+                <span class="flex items-center gap-2">
+                  <span class="w-3 h-3 rounded-full" style="background-color: ${color}"></span>
+                  ${escapeHtml(hub.name)}
+                </span>
+                <span class="text-[11px] font-semibold text-slate-500">Основних областей: ${primaryOblasts.length}</span>
+              </td>
+            </tr>
+          `;
+
+          primaryOblasts.forEach(obl => {
+            const key = `${hub.id}__${obl.name}`;
+            const activeDays = STATE.deliverySchedule[key] || [];
+            const dist = (hub.lat && hub.lon) ? getDistanceKm(hub.lat, hub.lon, obl.lat, obl.lon) : 0;
+
+            if (STATE.scheduleFilterDays.length > 0 && !STATE.scheduleFilterDays.some(d => activeDays.includes(d))) {
+              return;
+            }
+
+            html += `
+              <tr class="hover:bg-slate-50">
+                <td class="p-2.5 pl-6 font-medium text-slate-800 flex items-center gap-2">
+                  <i class="fa-solid fa-truck text-blue-600 text-xs"></i> ${obl.name} <span class="text-slate-400 font-normal">(${dist} км)</span>
+                </td>
+                ${daysList.map(d => {
+                  const isChecked = activeDays.includes(d.id);
+                  return `<td class="p-2 text-center">
+                    <input type="checkbox" ${isChecked ? 'checked' : ''} onchange="UIModule.toggleScheduleDay('${hub.id}', '${obl.name}', '${d.id}')" class="w-4 h-4 text-blue-600 rounded cursor-pointer focus:ring-blue-500">
+                  </td>`;
+                }).join('')}
+              </tr>
+            `;
+          });
+
+          const boundOblasts = ukraineOblasts.filter(o => getAssignedHubId(o, activeHubs));
+          const otherOblasts = boundOblasts.filter(o => !primaryOblasts.some(p => p.name === o.name));
+
+          otherOblasts.forEach(obl => {
+            const key = `${hub.id}__${obl.name}`;
+            const activeDays = STATE.deliverySchedule[key] || [];
+            const dist = (hub.lat && hub.lon) ? getDistanceKm(hub.lat, hub.lon, obl.lat, obl.lon) : 0;
+
+            if (activeDays.length === 0) return;
+            if (STATE.scheduleFilterDays.length > 0 && !STATE.scheduleFilterDays.some(d => activeDays.includes(d))) {
+              return;
+            }
+
+            html += `
+              <tr class="hover:bg-amber-50/50 bg-slate-50/50">
+                <td class="p-2.5 pl-6 font-medium text-slate-600 flex items-center gap-2">
+                  <i class="fa-solid fa-shuffle text-amber-500 text-xs"></i> ${obl.name} <span class="text-slate-400 font-normal">(${dist} км)</span>
+                </td>
+                ${daysList.map(d => {
+                  const isChecked = activeDays.includes(d.id);
+                  return `<td class="p-2 text-center">
+                    <input type="checkbox" ${isChecked ? 'checked' : ''} onchange="UIModule.toggleScheduleDay('${hub.id}', '${obl.name}', '${d.id}')" class="w-4 h-4 text-blue-600 rounded cursor-pointer focus:ring-blue-500">
+                  </td>`;
+                }).join('')}
+              </tr>
+            `;
+          });
+        });
+
+        html += `</tbody></table>`;
+        container.innerHTML = html;
+      },
+
+      renderScheduleByOblasts(activeHubs) {
+        const container = document.getElementById('scheduleMatrixContainer');
+        if (!container) return;
+
+        const boundOblasts = ukraineOblasts.filter(obl => getAssignedHubId(obl, activeHubs));
+
+        let html = `
+          <table class="w-full text-left text-xs border-collapse">
+            <thead class="bg-slate-900 text-white font-bold">
+              <tr>
+                <th class="p-3 w-1/2">Область доставки / Обслуговуючий Склад</th>
+                ${daysList.map(d => `<th class="p-2 text-center w-8">${d.name}</th>`).join('')}
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-200">
+        `;
+
+        boundOblasts.forEach(obl => {
+          const primaryHubId = getAssignedHubId(obl, activeHubs);
+
+          const sortedHubs = activeHubs.map(h => {
+            const dist = (h.lat && h.lon) ? getDistanceKm(h.lat, h.lon, obl.lat, obl.lon) : 9999;
+            return { ...h, dist, isPrimary: h.id === primaryHubId };
+          }).sort((a, b) => {
+            if (a.isPrimary) return -1;
+            if (b.isPrimary) return 1;
+            return a.dist - b.dist;
+          });
+
+          html += `
+            <tr class="bg-slate-100 border-t border-slate-300 font-bold">
+              <td colspan="8" class="p-2.5 text-slate-800">
+                📍 ${obl.name}
+              </td>
+            </tr>
+          `;
+
+          sortedHubs.forEach(hub => {
+            const key = `${hub.id}__${obl.name}`;
+            const activeDays = STATE.deliverySchedule[key] || [];
+
+            if (STATE.scheduleFilterDays.length > 0 && !STATE.scheduleFilterDays.some(d => activeDays.includes(d))) {
+              if (!hub.isPrimary && activeDays.length === 0) return;
+            }
+
+            html += `
+              <tr class="hover:bg-slate-50 ${hub.isPrimary ? 'bg-white' : 'bg-slate-50/60'}">
+                <td class="p-2.5 pl-6 font-medium text-slate-700 flex items-center gap-2">
+                  ${hub.isPrimary ? '<i class="fa-solid fa-truck text-blue-600 text-xs"></i>' : '<i class="fa-solid fa-shuffle text-amber-500 text-xs"></i>'}
+                  <span class="font-semibold ${hub.isPrimary ? 'text-slate-900' : 'text-slate-600'}">${escapeHtml(hub.name)}</span>
+                  <span class="text-[11px] text-slate-400 font-normal">(${hub.dist} км)</span>
+                </td>
+                ${daysList.map(d => {
+                  const isChecked = activeDays.includes(d.id);
+                  return `<td class="p-2 text-center">
+                    <input type="checkbox" ${isChecked ? 'checked' : ''} onchange="UIModule.toggleScheduleDay('${hub.id}', '${obl.name}', '${d.id}')" class="w-4 h-4 text-blue-600 rounded cursor-pointer focus:ring-blue-500">
+                  </td>`;
+                }).join('')}
+              </tr>
+            `;
+          });
+        });
+
+        html += `</tbody></table>`;
+        container.innerHTML = html;
+      },
+
+      renderDepartures() {
+        const container = document.getElementById('rightPanelContent');
+        container.innerHTML = `
+          <div class="space-y-4">
+            <div class="bg-amber-50 border border-amber-200 p-5 rounded-2xl">
+              <div class="flex items-center gap-3 text-amber-800 mb-2">
+                <i class="fa-solid fa-truck-arrow-right text-2xl"></i>
+                <h3 class="font-bold text-base">Графік виїздів зі складів відвантаження</h3>
+              </div>
+              <p class="text-xs text-amber-900 leading-relaxed mb-4">
+                Модуль розрахунку часу відправлення автотранспорту зі складів відвантаження на основі заданого <strong>Графіку доставки</strong> (дні прибуття вантажу до клієнтів в областях).
+              </p>
+              <div class="bg-white/80 p-4 rounded-xl border border-amber-200/60 text-xs text-slate-600 space-y-2">
+                <div class="font-bold text-slate-800 uppercase text-[10px]">Планований функціонал:</div>
+                <div class="flex items-center gap-2"><i class="fa-solid fa-check text-emerald-600"></i> Автоматичний розрахунок дати та часу завантаження/виїзду.</div>
+                <div class="flex items-center gap-2"><i class="fa-solid fa-check text-emerald-600"></i> Урахування тривалості рейсу (км/год) та часу на розвантаження.</div>
+                <div class="flex items-center gap-2"><i class="fa-solid fa-check text-emerald-600"></i> Формування розкладу нічних та денних магістральних рейсів.</div>
+              </div>
+            </div>
+          </div>
+        `;
+      },
+
+      renderFAQ() {
+        const container = document.getElementById('rightPanelContent');
+        container.innerHTML = `
+          <div class="space-y-4 text-xs text-slate-700 leading-relaxed">
+            <div class="bg-blue-50 border border-blue-100 p-4 rounded-xl">
+              <h3 class="font-bold text-sm text-blue-900 mb-2"><i class="fa-solid fa-circle-info"></i> Довідка системи SD</h3>
+              <p class="mb-2">1. <strong>Склади відвантаження:</strong> Налаштування опорних складів, радіусів обслуговування та тарифів.</p>
+              <p class="mb-2">2. <strong>Аналіз Покриття:</strong> Візуалізація закріплення областей за складами.</p>
+              <p class="mb-2">3. <strong>Графік доставки:</strong> Планування днів приходу вантажів за напрямками.</p>
+              <p>4. <strong>Графік виїздів:</strong> Розрахунок часу відправки машин зі складу.</p>
+            </div>
+          </div>
+        `;
+      }
+    };
+
+    function escapeHtml(str) {
+      return (str || '')
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    window.onload = function() {
+      StorageModule.load();
+      MapModule.init();
+      HubsModule.renderList();
+      UIModule.openTab('calc');
+    };
+  </script>
+</body>
+</html>
