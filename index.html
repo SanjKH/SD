@@ -1557,56 +1557,60 @@
       },
 
       renderScheduleByOblasts(activeHubs) {
-        const container = document.getElementById('scheduleMatrixContainer');
-        if (!container) return;
+    const container = document.getElementById('scheduleMatrixContainer');
+    if (!container) return;
 
-        const boundOblasts = ukraineOblasts.filter(obl => getAssignedHubId(obl, activeHubs));
+    const boundOblasts = ukraineOblasts.filter(obl => getAssignedHubId(obl, activeHubs));
 
-        let html = `
-          <table class="w-full text-left text-xs border-collapse">
-            <thead class="bg-slate-900 text-white font-bold">
-              <tr>
-                <th class="p-3 w-1/2">Область доставки / Закріплений Склад</th>
-                ${daysList.map(d => `<th class="p-2 text-center w-8">${d.name}</th>`).join('')}
-              </tr>
+    let html = `
+        <table class="w-full text-left text-[11px] border-collapse table-fixed">
+            <thead class="bg-slate-900 text-white font-bold uppercase text-[10px]">
+                <tr>
+                    <th class="p-2 w-auto">Область доставки / Склад</th>
+                    ${daysList.map(d => `<th class="p-1 text-center w-[28px]">${d.name}</th>`).join('')}
+                </tr>
             </thead>
-            <tbody class="divide-y divide-slate-200">
-        `;
+            <tbody class="divide-y divide-slate-100">
+    `;
 
-        boundOblasts.forEach(obl => {
-          const primaryHubId = getAssignedHubId(obl, activeHubs);
-          const hub = activeHubs.find(h => h.id === primaryHubId);
-          if (!hub) return;
+    boundOblasts.forEach(obl => {
+        const primaryHubId = getAssignedHubId(obl, activeHubs);
+        const hub = activeHubs.find(h => h.id === primaryHubId);
+        if (!hub) return;
 
-          const dist = (hub.lat && hub.lon) ? getDistanceKm(hub.lat, hub.lon, obl.lat, obl.lon) : 0;
-          const key = `${hub.id}__${obl.name}`;
-          const activeDays = STATE.deliverySchedule[key] || [];
+        const dist = (hub.lat && hub.lon) ? getDistanceKm(hub.lat, hub.lon, obl.lat, obl.lon) : 0;
+        const key = `${hub.id}__${obl.name}`;
+        const activeDays = STATE.deliverySchedule[key] || [];
 
-          if (STATE.scheduleFilterDays.length > 0 && !STATE.scheduleFilterDays.some(d => activeDays.includes(d))) {
+        // Apply filter if any day is selected
+        if (STATE.scheduleFilterDays.length > 0 && !STATE.scheduleFilterDays.some(d => activeDays.includes(d))) {
             return;
-          }
+        }
 
-          html += `
+        html += `
             <tr class="hover:bg-slate-50 bg-white">
-              <td class="p-2.5 font-medium text-slate-800 flex items-center justify-between">
-                <span class="font-bold text-slate-900">📍 ${obl.name}</span>
-                <span class="text-xs text-slate-600 font-semibold flex items-center gap-1 pr-4">
-                  <i class="fa-solid fa-warehouse text-blue-600"></i> ${escapeHtml(hub.name)} <span class="text-slate-400 font-normal">(${dist} км)</span>
-                </span>
-              </td>
-              ${daysList.map(d => {
-                const isChecked = activeDays.includes(d.id);
-                return `<td class="p-2 text-center">
-                  <input type="checkbox" ${isChecked ? 'checked' : ''} onchange="UIModule.toggleScheduleDay('${hub.id}', '${obl.name}', '${d.id}')" class="w-4 h-4 text-blue-600 rounded cursor-pointer focus:ring-blue-500">
-                </td>`;
-              }).join('')}
+                <td class="p-1.5 font-medium text-slate-800 flex items-center justify-between gap-1.5 overflow-hidden">
+                    <span class="font-bold text-slate-900 truncate" title="${escapeHtml(obl.name)}">${escapeHtml(obl.name)}</span>
+                    <span class="text-[10px] text-slate-500 font-medium whitespace-nowrap shrink-0">
+                        ${escapeHtml(hub.name)} <span class="text-slate-400">(${dist} км)</span>
+                    </span>
+                </td>
+                ${daysList.map(d => {
+                    const isChecked = activeDays.includes(d.id);
+                    return `
+                        <td class="p-0.5 text-center align-middle">
+                            <input type="checkbox" ${isChecked ? 'checked' : ''} 
+                                   onchange="UIModule.toggleScheduleDay('${hub.id}', '${obl.name}', '${d.id}')" 
+                                   class="w-3.5 h-3.5 text-blue-600 rounded cursor-pointer focus:ring-0">
+                        </td>`;
+                }).join('')}
             </tr>
-          `;
-        });
+        `;
+    });
 
-        html += `</tbody></table>`;
-        container.innerHTML = html;
-      },
+    html += `</tbody></table>`;
+    container.innerHTML = html;
+},
 
       renderDepartures() {
         const container = document.getElementById('rightPanelContent');
